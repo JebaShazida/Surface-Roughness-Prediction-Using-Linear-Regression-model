@@ -1,0 +1,102 @@
+import pandas as pd
+import numpy as np
+import random
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.preprocessing import StandardScaler, PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_percentage_error,explained_variance_score
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Function to augment data
+def augment_data(data, num_samples=10, perturbation_factor=0.05):
+    augmented_data = [data.copy()]  # Start by copying the original data into a list
+    for _ in range(num_samples):
+        new_data = data.copy()
+        for i in range(len(data)):
+            new_row = new_data.iloc[i].copy()
+            # Add small random noise to each feature to create a synthetic sample
+            new_row['Spindle speed (rpm)'] += random.uniform(-perturbation_factor, perturbation_factor) * new_row['Spindle speed (rpm)']
+            new_row['Feed Rate (mm/min)'] += random.uniform(-perturbation_factor, perturbation_factor) * new_row['Feed Rate (mm/min)']
+            new_row['Depth of cut (mm)'] += random.uniform(-perturbation_factor, perturbation_factor) * new_row['Depth of cut (mm)']
+            augmented_data.append(pd.DataFrame([new_row]))  # Add new row as DataFrame to list
+    return pd.concat(augmented_data, ignore_index=True)  # Concatenate all dataframes in the list into one DataFrame
+
+# Load dataset
+data = pd.read_csv('/kaggle/input/1-csv/1.csv.csv', encoding='ISO-8859-1')
+
+# Data augmentation
+print("Original Data:")
+print(data.head())
+
+# Augment the data
+augmented_data = augment_data(data, num_samples=10)
+
+# Print augmented data
+print("\nAugmented Data Head:")
+print(augmented_data.head())
+
+# Features and target
+X = augmented_data[['Spindle speed (rpm)', 'Feed Rate (mm/min)', 'Depth of cut (mm)']]
+y = augmented_data['Surface Roughness (æm)']
+
+# Standardization
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Add polynomial and interaction terms (degree=2, including interaction terms)
+poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=False)
+X_poly = poly.fit_transform(X_scaled)
+
+# Split data
+X_train, X_test, y_train, y_test = train_test_split(X_poly, y, test_size=0.2, random_state=42)
+
+# Linear Regression model
+model = LinearRegression()
+model.fit(X_train, y_train)
+
+# Predict
+y_pred = model.predict(X_test)
+
+# Evaluate
+mse = mean_squared_error(y_test, y_pred)
+r2 = r2_score(y_test, y_pred)
+evs = explained_variance_score(y_test, y_pred)
+mape = mean_absolute_percentage_error(y_test, y_pred)
+print(f"Mean Squared Error: {mse}")
+print(f"R-squared: {r2}")
+print(f"Explained Variance Score: {evs}")
+print(f"Mean Absolute Percentage Error: {mape}")
+
+# Cross-validation
+scores = cross_val_score(model, X_poly, y, cv=5, scoring='r2')
+print(f"Cross-validated R-squared: {scores.mean()}")
+
+# Make a prediction for a new data point
+new_data = pd.DataFrame({
+    'Spindle speed (rpm)': [400],  # example spindle speed
+    'Feed Rate (mm/min)': [150],  # example feed rate
+    'Depth of cut (mm)': [0.5]   # example depth of cut
+})
+
+# Transform the new data point
+new_data_scaled = scaler.transform(new_data)
+new_data_poly = poly.transform(new_data_scaled)
+
+# Predict Surface Roughness for new data
+predicted_ra_lr = model.predict(new_data_poly)
+print(f"Predicted Surface Roughness (Ra) for input [400, 150, 0.5]: {predicted_ra_lr[0]}")
+
+# Plot residuals
+residuals = y_test - y_pred
+plt.scatter(y_pred, residuals)
+plt.xlabel('Predicted values')
+plt.ylabel('Residuals')
+plt.title('Residual Plot for Linear Regression with Polynomial Features')
+plt.axhline(0, color='red', linestyle='--')
+plt.show()
+
+# Correlation heatmap (excluding non-numeric columns like 'Experiment No.')
+corr = augmented_data.drop(columns=['Experiment No.']).corr()  # Drop 'Experiment No.' as it's non-numeric
+sns.heatmap(corr, annot=True, cmap="coolwarm")
+plt.show()
